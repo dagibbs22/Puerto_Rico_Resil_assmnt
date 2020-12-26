@@ -1,0 +1,1173 @@
+---
+title: "Resilience assessment of NCRMP2024 sites near Guanica"
+author: "David Gibbs"
+date: "6/11/19"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+Libraries
+```{r necessary libraries}
+# library(devtools)
+# install_github("vqv/ggbiplot")
+library(ggbiplot)
+library(xlsx)
+library(psych)
+library(PerformanceAnalytics)
+library(reshape2)
+library(stats)
+library(psy)
+library(BiodiversityR)
+library(Metrics)
+```
+
+
+
+Loads data into R
+```{r load data}
+#Loads the survey data, calculated as indicators
+setwd("C:/Users/dagib/Documents/EPA ORISE EARCG/Coral projects/Adaptation Design Tool/Analyses/Inputs")
+all_data <- read.xlsx("NCRMP_2014_sites_SW_PR_20190630.xlsx", sheetIndex=2, header=TRUE)
+all_data <- all_data[order(all_data$Station), c(1:9)]
+
+#Converts the values in the indicator spreadheet from factors to numeric
+type <- sapply(all_data[,c(2:9)], is.factor)
+all_data[type] <- lapply(all_data[type], function(x) as.numeric(as.character(x)))
+
+# Removes rows that have NAs for indicator values
+complete_records <- na.omit(all_data)
+
+#Loads the indicator weight spreadsheet
+indic_weights <- read.xlsx("NCRMP_2014_sites_SW_PR_20190630.xlsx", sheetIndex = 3, header = TRUE)
+indic_weights <- indic_weights[c(1:10),c(3, 5:11)]
+
+#Converts the values in the weighting spreadheet from factors to numeric
+weights <- sapply(indic_weights[,-c(1:2)], is.factor)
+indic_weights[weights] <- lapply(indic_weights[weights], function(x) as.numeric(as.character(x)))
+
+#Loads the station property data
+sta_props <- read.xlsx("NCRMP_PR2014_station_properties.xlsx", sheetIndex = 1, header = TRUE)
+
+#Reorders the station property file by station number
+sta_props <- sta_props[order(sta_props$survey_index),]
+
+#Joins the site attributes to the indicators
+complete_records_attribs <- merge(x = complete_records, y = sta_props, by.x = "Station", by.y = "survey_index")
+
+#The sites that have coral demographic surveys 
+demog_sites_attribs <- complete_records_attribs[which(complete_records_attribs$demo=="1"),]
+demog_sites <- demog_sites_attribs[,c(1:9)]
+
+#Just the sites with demographic surveys that actually had full-sized coral colonies.
+#This removes the sites that did not have any full-sized coral colonies.
+demog_sites_complete_records <- demog_sites_attribs[complete.cases(demog_sites_attribs),]
+
+#Converts the values in the indicator spreadheet from factors to numeric
+demog_sites_complete_records[,3] <- as.numeric(as.character(demog_sites_complete_records[,3]))
+
+#Keeps just the demographic survey indicators at the demographic sites
+#(coral diversity, coral disease, coral thermal tolerance) 
+demog_sites_demog_fields <- demog_sites_complete_records[,c(1:3, 9)]
+
+#All sites without demographic data.
+#Removes the columns that are only for sites with demographic data.
+all_sites_non_demog_fields <- complete_records_attribs[,c(1, 4:8)]
+
+#Loads the fishing pressure data
+# setwd("C:/Users/dagib/Documents/EPA ORISE EARCG/Coral projects/Resilience_assessment/GIS/Stressors/Fishing_pressure")
+fishing <- read.csv("NCRMP2014_stations_with_Shivlani_fishing_pressure_sptl_join_20180409.csv", header = TRUE)
+
+#Loads land-based sources of pollution (LBSP) data
+# setwd("C:/Users/dagib/Documents/EPA ORISE EARCG/Coral projects/Resilience_assessment/GIS/Stressors/LBSP_coastal_dispersion")
+LBSP <- read.xlsx("LBSP_at_NCRMP_sites_90ft_depth_using_7_nearest_OpenNSPECT_pour_points_CCAP2010_20180412.xls", sheetIndex = 10, header = TRUE)
+
+#loads annual bleaching onset year (scenario rcp8.5) estimates for each site
+# setwd("C:/Users/dagib/Documents/EPA ORISE EARCG/Coral projects/Resilience_assessment/GIS/UNEP van Hooindonk 2016 bleaching projections")
+annual_bleaching_rcp85 <- read.csv("annual_bleaching_onset_year_rcp85_20180424.csv", header = TRUE)
+
+```
+
+
+
+Performs principal components analysis as shown at
+https://www.r-bloggers.com/computing-and-visualizing-pca-in-r/
+using the prcomp method
+```{r performs PCA}
+
+#PCA for sites with demographic data using demog and non-demog (i.e. all) indicators
+demog_sites_pca <- prcomp(demog_sites_complete_records[,c(2:9)], center=TRUE, scale.=TRUE)
+print(demog_sites_pca)
+summary(demog_sites_pca)
+plot(demog_sites_pca, type = "lines")
+#Matrix of each site with its PCA scores
+demog_sites_pca_scores <- demog_sites_pca$x
+demog_sites_pca_scores <- cbind(demog_sites_complete_records[,1], demog_sites_pca_scores)
+
+# #PCA for all sites using non-demographic indicators only
+# all_sites_non_demog_fields_pca <- prcomp(all_sites_non_demog_fields[,c(2:5)], center=TRUE, scale.=TRUE)
+# print(all_sites_non_demog_fields_pca)
+# summary(all_sites_non_demog_fields_pca)
+# plot(all_sites_non_demog_fields_pca, type = "lines")
+# #Matrix of each site with its PCA scores
+# all_sites_non_demog_fields_pca_scores <- all_sites_non_demog_fields_pca$x
+# all_sites_non_demog_fields_pca_scores <- cbind(all_sites_non_demog_fields[,1], all_sites_non_demog_fields_pca_scores)
+# 
+# #PCA for demog sites using demographic indicators only at demographic sites
+# demog_sites_demog_fields_pca <- prcomp(demog_sites_demog_fields[,c(2:4)], center=TRUE, scale.=TRUE)
+# print(demog_sites_demog_fields_pca)
+# summary(demog_sites_demog_fields_pca)
+# plot(demog_sites_demog_fields_pca, type = "lines")
+# #Matrix of each site with its PCA scores
+# demog_sites_demog_fields_pca_scores <- demog_sites_demog_fields_pca$x
+# demog_sites_demog_fields_pca_scores <- cbind(demog_sites_demog_fields[,1], demog_sites_demog_fields_pca_scores)
+
+```
+
+
+
+Creates PCA ordination plots
+```{r PCA ordination plots}
+
+#PCA ordination plots for sites with demographic data using demog and non-demog (i.e. all) indicators
+demog_sites_pca_plot <- ggbiplot(demog_sites_pca, obs.scale = 1, var.scale = 1)
+demog_sites_pca_plot <- demog_sites_pca_plot + scale_color_discrete(name = '')
+demog_sites_pca_plot <- demog_sites_pca_plot + theme(legend.direction = 'horizontal', 
+               legend.position = 'top')
+demog_sites_pca_plot <- demog_sites_pca_plot + ggtitle("PCA for sites with demographic data")
+print(demog_sites_pca_plot)
+
+# #PCA ordination plots for demographic indicators at demographic sites
+# demog_pca_plot <- ggbiplot(demog_sites_demog_fields_pca, obs.scale = 1, var.scale = 1)
+# demog_pca_plot <- demog_pca_plot + scale_color_discrete(name = '')
+# demog_pca_plot <- demog_pca_plot + theme(legend.direction = 'horizontal', 
+#                legend.position = 'top')
+# demog_pca_plot <- demog_pca_plot + ggtitle("PCA for demographic indicators at sites with demographic data")
+# print(demog_pca_plot)
+# 
+# #PCA ordination plots for all sites using non-demographic indicators only
+# non_demog_pca_plot <- ggbiplot(all_sites_non_demog_fields_pca, obs.scale = 1, var.scale = 1)
+# non_demog_pca_plot <- non_demog_pca_plot + scale_color_discrete(name = '')
+# non_demog_pca_plot <- non_demog_pca_plot + theme(legend.direction = 'horizontal', 
+#                legend.position = 'top')
+# non_demog_pca_plot <- non_demog_pca_plot + ggtitle("PCA for non-demographic indicators at all sites")
+# print(non_demog_pca_plot)
+
+```
+
+
+
+Correlations between all pairs of indicators
+```{r Correlations between indicators}
+#Sites with coral demographic data that have all indicator values (i.e. excludes 8 sites that did not have any demogrphic data)
+chart.Correlation(demog_sites_complete_records[,c(2:9)], histogram=TRUE, method=c("spearman"), pch=".")
+demog_indic_cor <- cor(demog_sites_complete_records[,c(2:9)], use="pairwise.complete.obs", method=c("spearman"))
+# pairs.panels(demog_sites_complete_records[,c(2:9)], method="spearman", lm=TRUE, ellipses=FALSE)
+
+# #Sites with demographic data but just using the indicators that don't come from the demographic surveys
+# chart.Correlation(all_sites_non_demog_fields[,c(2:6)], histogram=TRUE, method=c("spearman"), pch=".")
+# # pairs.panels(all_sites_non_demog_fields[,c(2:6)], method="spearman", lm=TRUE, ellipses=FALSE)
+
+write.table(demog_indic_cor, file = paste("demog_indic_Pearson_", Sys.Date(), ".csv", sep=""), row.names = FALSE)
+```
+
+
+Factor analysis between all indicators
+Sources include: 
+http://www.statpower.net/Content/312/R%20Stuff/Exploratory%20Factor%20Analysis%20with%20R.pdf
+https://www.promptcloud.com/blog/exploratory-factor-analysis-in-r/
+http://www.di.fc.ul.pt/~jpn/r/factoranalysis/factoranalysis.html#introduction
+```{r Factor analysis between all indicators}
+
+#Conducts the factor analysis using varimax rotation
+demog_fa <- factanal(demog_sites_complete_records[,c(2:9)], factors=4, rotation="varimax")
+demog_fa
+
+#Scree plot of factors' importance to show how many factors to use
+scree.plot(demog_fa$correlation)
+
+#Plots the loadings of the indicators on two of the factors
+demog_fa_load <- demog_fa$loadings[,c(1:2)]
+plot(demog_fa_load, type="n")
+text(demog_fa_load, labels=names(demog_sites_complete_records[,c(2:9)]), cex=0.7)
+
+```
+
+
+
+Rescales indicators
+```{r Rescale indicators}
+
+#Divides each indicator by the largest value for that indicator across all sites with demographic data
+demog_sites_rescaled <- t(t(demog_sites_complete_records[,c(2:9)])/apply(demog_sites_complete_records[,c(2:9)], 2, function(x) max(na.omit(x))))
+
+#Binds the rescaled indicators to the raw indicators
+demog_sites_rescaled <- cbind(demog_sites_complete_records[,c(1:9)], demog_sites_rescaled)
+
+#Renames the columns to distinguish the raw indicators from the rescaled indicators
+colnames(demog_sites_rescaled)[1] <- colnames(demog_sites_attribs)[1]
+colnames(demog_sites_rescaled)[c(2:9)] <- paste(colnames(demog_sites_rescaled)[c(2:9)], "_raw", sep="")
+colnames(demog_sites_rescaled)[c(10:17)] <- paste(colnames(demog_sites_rescaled)[c(10:17)], "_rescaled", sep="")
+
+# #Turns unweighted indicators into long form for box plot. Also reorders the variables for box plot.
+# demog_sites_rescaled_long <- melt(demog_sites_rescaled[,c(10:17)])
+# demog_sites_rescaled_long$variable <- factor(demog_sites_rescaled_long$variable, levels=c("SimpsonDiv_rescaled", "FractNotDiseased_rescaled","ThermalTol_rescaled", "HardCoralCover_rescaled", "AlgaeCover_rescaled", "Rugosity_rescaled", "HerbivoreBiomass_rescaled", "TempVar_rescaled"))
+# 
+# #creates boxplot of each rescaled indicator (1 is maximum value)
+# p <- ggplot(data=demog_sites_rescaled_long, aes(x=variable, y=value)) + geom_boxplot(aes(fill=variable))
+# p <- p + theme(legend.position="none")
+# p <- p + theme(axis.text.x = element_text(angle = 65, vjust = 0.6))
+# p <- p + labs(x = "Indicator", y = "Rescaled value")
+# p <- p + scale_fill_manual(values=c("#999555", "#999555", "#999555", "#999555", "#999555", "#999555", "#999555", "#999555"))
+# p
+
+```
+
+
+
+Functions to calculate composite resilience scores, ranks, and rank quartiles at sites with demographic data: 1) using all indicators, and 2) without the temperature variation indicator
+```{r Functions to calculate unweighted resilience scores}
+
+#Calculates the composite resilience score by averaging the rescaled indicators
+resilScore <- function(rescaled_indics) {
+  
+  #Creates empty fields for the resilience scores
+  rescaled_indics$resil_all_indic <- NA
+  rescaled_indics$resil_no_temp_var <- NA
+  
+  #Calculates resilience scores with all indicators and without the temperature variation indicator.
+  resil_all_indic_demog <- rowMeans(rescaled_indics[which(rescaled_indics$demo == 1), c(10:17)], na.rm = TRUE)
+  resil_no_temp_var_demog <- rowMeans(rescaled_indics[which(rescaled_indics$demo == 1), c(10:15,17)], na.rm = TRUE)
+  
+  #Rescales the resilience scores to the highest resilience score
+  resil_all_indic_demog <- resil_all_indic_demog/max(resil_all_indic_demog)
+  resil_no_temp_var_demog <- resil_no_temp_var_demog/max(resil_no_temp_var_demog)
+  
+  #Attaches the resilience scores (all indicators and without temperature variation) to the rescaled indicator table
+  rescaled_indics[which(rescaled_indics$demo == 1), ]$resil_all_indic <- resil_all_indic_demog
+  rescaled_indics[which(rescaled_indics$demo == 1), ]$resil_no_temp_var <- resil_no_temp_var_demog
+  
+  return(rescaled_indics)
+}
+
+#Calculates the resilience score rank (1 is highest resilience) for each site
+resilRank <- function(rescaled_indics) {
+  
+  rescaled_indics <- as.data.frame(rescaled_indics)
+  
+  #Creates empty columns for the resilience ranks
+  rescaled_indics$resil_rank_all_indic <- NA
+  rescaled_indics$resil_rank_no_temp_var <- NA
+  
+  #Resilience ranks for demographic sites using all indicators
+  rescaled_indics[which(rescaled_indics$demo == 1),]$resil_rank_all_indic <- rank(-rescaled_indics[which(rescaled_indics$demo == 1),]$resil_all_indic, na.last = "keep", ties.method = "first")
+
+  #Resilience ranks for demographic sites using all indicators except temperature variation
+  rescaled_indics[which(rescaled_indics$demo == 1),]$resil_rank_no_temp_var <- rank(-rescaled_indics[which(rescaled_indics$demo == 1),]$resil_no_temp_var, na.last = "keep", ties.method = "first")
+  
+  return(rescaled_indics)
+}
+
+#Calculates the quartile of resilience that each site is in (1 is most resilient quartile, 4 is least resilient quartile
+resilQuartile <- function(rescaled_indics) {
+  
+  #Creates empty columns for the resilience rank quartiles
+  rescaled_indics$resil_quart_all_indic <- NA
+  rescaled_indics$resil_quart_no_temp_var <- NA
+  
+  #Resilience rank quartiles for demographic sites using all indicators
+  rescaled_indics[which(rescaled_indics$demo == 1),]$resil_quart_all_indic <-
+    cut(rescaled_indics[which(rescaled_indics$demo == 1),]$resil_rank_all_indic,        breaks=quantile(rescaled_indics[which(rescaled_indics$demo == 1),]$resil_rank_all_indic, probs=seq(0, 1, 0.25)), include.lowest=TRUE, labels = 1:4)
+  
+  # #Resilience rank quartiless for demographic sites using all indicators except temperature variation
+  rescaled_indics[which(rescaled_indics$demo == 1),]$resil_quart_no_temp_var <-
+    cut(rescaled_indics[which(rescaled_indics$demo == 1),]$resil_rank_no_temp_var,        breaks=quantile(rescaled_indics[which(rescaled_indics$demo == 1),]$resil_rank_no_temp_var, probs=seq(0, 1, 0.25)), include.lowest=TRUE, labels = 1:4)
+
+  return(rescaled_indics)
+}
+
+```
+
+
+
+Calculates resilience scores, ranks, and quartiles for unweighted indicators
+```{r Calculates resilience scores, ranks, and quartiles for unweighted indicators}
+
+demog_sites_rescaled <- as.data.frame(demog_sites_rescaled)
+
+#Attaches the site attributes to the indicators and resilience scores
+demog_sites_rescaled_attribs <- merge(x = demog_sites_rescaled, y = sta_props, by.x = "Station", by.y = "survey_index")
+
+#Resilience scores based on rescaled indicators
+demog_sites_rescaled_scores <- resilScore(demog_sites_rescaled_attribs)
+
+#Resilience ranks based on the composite resilience scores
+demog_sites_rescaled_ranks <- resilRank(demog_sites_rescaled_scores)
+
+#Resilience quartiles based on the resilience ranks (1 is most resilient quartile, 4 is least resilient quartile)
+demog_sites_rescaled_quartiles <- resilQuartile(demog_sites_rescaled_ranks)
+
+#Adds a field with the weighting system for the indicators. This one is unweighted.
+demog_sites_rescaled_quartiles["weighting_sys"] <- 0
+
+#Deletes a redundant field
+demog_sites_rescaled_quartiles <- demog_sites_rescaled_quartiles[,-c(21)]
+
+#Adds four fields for comparing the unweighted and weighted ranks and quartiles (two for ranks/quartiles with all indicators and two for ranks/quartiles without temperature variation). Does not apply for the unweighted data, of course.
+demog_sites_rescaled_quartiles["quartile_change_all_indic"] <- "N/A"
+demog_sites_rescaled_quartiles["diff_unweighted_weighted_all_indic"] <- "N/A"
+demog_sites_rescaled_quartiles["quartile_change_no_temp_var"] <- "N/A"
+demog_sites_rescaled_quartiles["diff_unweighted_weighted_no_temp_var"] <- "N/A"
+
+#Saves the unweighted data in its own dataframe
+data_demog_sites_unweighted <- demog_sites_rescaled_quartiles
+
+write.table(data_demog_sites_unweighted, file = paste("demog_sites_unweighted_", Sys.Date(), ".csv", sep=""), row.names = FALSE)
+
+```
+
+
+
+Calculates resilience scores for each site using different weighting systems
+```{r Calculates resilience scores using different weighting systems}
+
+#Creates a new dataframe for weighted data
+data_demog_sites_weighted <- demog_sites_rescaled_quartiles
+
+for(i in 2:nrow(indic_weights)) {
+
+  #Creates an empty weighting table
+  weighted <- NA
+
+  #Iterates through every station
+  for(j in 1:nrow(data_demog_sites_unweighted)) {
+  
+    #Multiplies the rescaled values by the indicator weights
+    weighted_new <- data_demog_sites_unweighted[j,c(10:17)]*indic_weights[i,c(1:8)]
+    weighted <- rbind(weighted, weighted_new)
+   
+  }
+
+  #Removes the empty first row of the weighted table
+  weighted <- weighted[-c(1),]
+
+  #Adds the station property columns to the weighted values and rearranges columns so they match the unweighted table
+  weighted <- cbind(data_demog_sites_weighted[c(1:nrow(data_demog_sites_unweighted)),c(1:9)], weighted)
+  weighted <- cbind(weighted, data_demog_sites_weighted[c(1:nrow(data_demog_sites_unweighted)),c(18:ncol(data_demog_sites_weighted))])
+
+  #Resilience scores based on all rescaled indicators available at a site
+  weighted <- resilScore(weighted)
+
+  #Resilience ranks (separate for sites with and without demographic indicators (111 and 119, respectively))
+  weighted <- resilRank(weighted)
+
+  #Resilience quartiles (separate for sites with and without demographic indicators (111 and 119, respectively))
+  weighted <- resilQuartile(weighted)
+
+  #Adds a field with the weighting system for the indicators
+  weighted["weighting_sys"] <- i-1
+
+  #Adds four fields for comparing the unweighted and weighted ranks and quartiles (two for ranks/quartiles with all indicators and two for ranks/quartiles without temperature variation). Does not apply for the unweighted data, of course.
+  weighted["quartile_change_all_indic"] <- NA
+  weighted["diff_unweighted_weighted_all_indic"] <- NA
+  weighted["quartile_change_no_temp_var"] <- NA
+  weighted["diff_unweighted_weighted_no_temp_var"] <- NA
+
+  #Adds and populates columns for storing changes in resilience rank and quartile between the unweighted and weighted systems
+  weighted$quartile_change_all_indic <- paste(data_demog_sites_unweighted$resil_quart_all_indic, " to ", weighted$resil_quart_all_indic)
+  weighted$diff_unweighted_weighted_all_indic <- data_demog_sites_unweighted$resil_rank_all_indic - weighted$resil_rank_all_indic
+  weighted$quartile_change_no_temp_var <- paste(data_demog_sites_unweighted$resil_quart_no_temp_var, " to ", weighted$resil_quart_no_temp_var)
+  weighted$diff_unweighted_weighted_no_temp_var <- data_demog_sites_unweighted$resil_rank_no_temp_var - weighted$resil_rank_no_temp_var
+
+  #Gives the weighted table the same column names as the unweighted table
+  colnames(weighted) <- colnames(data_demog_sites_weighted)
+
+  #Adds the weighted table to the end of the previous table
+  data_demog_sites_weighted <- rbind(data_demog_sites_weighted, weighted)
+
+}
+
+write.table(data_demog_sites_weighted, file = paste("resil_with_weighting_", Sys.Date(), ".csv", sep=""), row.names = FALSE)
+
+```
+
+
+
+Plots comparing ranks of unweighted resilience ranks and some of the weighted resilience ranks against each other
+Also calculates the root mean square error of ranks under the weighting systems against the ranks under the unweighted system
+```{r Plots comparing ranks of unweighted resilience ranks and some of the weighted resilience ranks against each other. Also, calculated RMSE of weighted vs. unweighted.}
+
+#Function to plot the resilience score ranks. Run separately on sites with and without demographic indicators. This is just for resilience ranks calculated without the temperature variation indicator.
+resilRankCompare <- function(sensit_table, demog) {
+  
+  #Table of unweighted ranks
+  unweighted_table <- sensit_table[which(sensit_table$demo==demog & sensit_table$weighting_sys == 0),]$resil_rank_no_temp_var
+
+  rank_table <- data.frame(unweighted_table)
+  
+  colnames(rank_table) <- "Unweighted"
+
+  #Iterates through the chosen weighting systems
+  for (i in c(3,7,9)){
+
+    #For each weighting system, a dataframe with the ranks
+    weighted_table <- sensit_table[which(sensit_table$demo==demog & sensit_table$weighting_sys == i),]$resil_rank_no_temp_var
+  
+    weighted_table <- data.frame(weighted_table)
+  
+    colnames(weighted_table) <- paste("Weighting_", i, sep="")
+
+    #Attaches the table with weighted ranks
+    rank_table <- cbind(rank_table, weighted_table)
+
+  }
+
+  #Creates the plot
+  g_total<- ggplot(rank_table, aes(x = Unweighted, y = Weighted_7, color = Weighting)) + 
+    geom_point(aes(y = rank_table[,2], col = gsub("_", " ", colnames(rank_table)[2])), shape=19, size=3) + 
+    geom_point(aes(y = rank_table[,3], col = gsub("_", " ", colnames(rank_table)[3])), shape=15, size=3) + 
+    geom_point(aes(y = rank_table[,4], col = gsub("_", " ", colnames(rank_table)[4])), shape=18, size=3) +
+    scale_color_grey(start=0.65, end=0.05)
+  
+  g_total <- g_total + labs(x = "Unweighted rank", y = "Weighted rank", color = "Weighting system")
+  g_total <- g_total + xlim(0, nrow(rank_table)+10)
+  g_total <- g_total + ylim(0, nrow(rank_table)+10)
+  # g_total <- g_total + ggtitle("Weighted vs. unweighted resilience score ranks")
+  # g_total <- g_total + labs(subtitle = "For select weighting systems")
+  g_total <- g_total + theme(plot.title = element_text(hjust = 0.5))
+  g_total <- g_total + theme(plot.subtitle=element_text(hjust = 0.5))
+  g_total <- g_total + scale_x_continuous(breaks=c(seq(0,nrow(rank_table)+10,25)))
+  g_total <- g_total + scale_y_continuous(breaks=c(seq(0,nrow(rank_table)+10,25)))
+  g_total <- g_total + theme_bw()
+  g_total <- g_total + guides(color = guide_legend(override.aes = list(shape = c(19,15,18))))
+  g_total <- g_total + theme(legend.position = c(0.9,0.2))
+
+  # #Different subtitles depending on whether demographic sites or non-demographic sites are being plotted
+  # if (demog==0) {
+  #   g_total<- g_total+ labs(subtitle = "Only sites without demographic indicators")
+  # }
+  # if (demog==1) {
+  #   g_total<- g_total+ labs(subtitle = "Only sites with demographic data (no temperature variation indicator)")
+  # }
+  
+  return(g_total)
+  
+}
+
+# p1 <- resilRankCompare(all_data_rescaled_attribs, 0)
+# p1
+
+p2 <- resilRankCompare(data_demog_sites_weighted, 1)
+p2
+
+ggsave("indic_sensit_analysis.jpg", plot = p2, device = "jpeg", width=10, height=8, dpi=300)
+
+####Calculates root mean square error (RMSE)for each comparison of weighted and unweighted indicator rankings
+
+#Creates an empty dataframe
+rmse_weights <- data.frame(matrix(NA, nrow=9, ncol=1))
+colnames(rmse_weights) <- "RMSE"
+
+#Unweighted ranks
+unweighted_ranks <- data_demog_sites_weighted[which(data_demog_sites_weighted$weighting_sys == 0),]$resil_rank_no_temp_var
+
+#Calculates RMSE for each weighted ranking system
+for (i in 1:max(data_demog_sites_weighted$weighting_sys)){
+  
+  weighted_ranks <- data_demog_sites_weighted[which(data_demog_sites_weighted$weighting_sys == i),]$resil_rank_no_temp_var
+  
+  rmse_weights[i,1] <- rmse(unweighted_ranks, weighted_ranks)
+  
+}
+
+print(rmse_weights)
+
+```
+
+
+
+Plots comparing the difference between weighted resilience ranks against unweighted ranks
+```{r Plots comparing the difference between weighted resilience ranks against unweighted ranks}
+
+#Function to plot the resilience score ranks. Run separately on sites with and without demographic indicators. This is just for resilience ranks calculated without the temperature variation indicator.
+resilRankDiff <- function(sensit_table, demog) {
+  
+  #Table of unweighted ranks
+  unweighted_table <- sensit_table[which(sensit_table$demo==demog & sensit_table$weighting_sys == 0),]$resil_rank_no_temp_var
+
+  rank_table <- data.frame(unweighted_table)
+  
+  colnames(rank_table) <- "Unweighted"
+
+  #Iterates through the chosen weighting systems
+  for (i in c(3,7,9)){
+
+    #For each weighting system, a dataframe with the rank differences
+    weighted_table <- sensit_table[which(sensit_table$demo==demog & sensit_table$weighting_sys == i),]$diff_unweighted_weighted_no_temp_var
+  
+    weighted_table <- data.frame(weighted_table)
+  
+    colnames(weighted_table) <- paste("Weighting_", i, sep="")
+
+    #Attaches the table with weighted ranks
+    rank_table <- cbind(rank_table, weighted_table)
+
+  }
+  
+  #Converts the rank differences into numbers
+  rank_table[,c(2:4)] <- lapply(rank_table[,c(2:4)], function(x) as.numeric(as.character(x)))
+
+  #Creates the plot
+  g_diff<- ggplot(rank_table, aes(x = Unweighted, y = Weighted_7, color = Weighting)) + 
+    geom_point(aes(y = rank_table[,2], col = colnames(rank_table)[2])) + 
+    geom_point(aes(y = rank_table[,3], col = colnames(rank_table)[3])) + 
+    geom_point(aes(y = rank_table[,4], col = colnames(rank_table)[4]))
+  
+  g_diff<- g_diff+ labs(x = "Unweighted rank", y = "Difference from unweighted rank")
+  g_diff<- g_diff+ ggtitle("Difference between weighted and unweighted ranks")
+  g_diff<- g_diff+ theme(plot.title = element_text(hjust = 0.5))
+  g_diff<- g_diff+ theme(plot.subtitle = element_text(hjust = 0.5))
+  g_diff <- g_diff + theme_bw()
+  
+  #Different subtitles depending on whether demographic sites or non-demographic sites are being plotted
+  if (demog==0) {
+    g_diff<- g_diff+ labs(subtitle = "Only sites without demographic indicators")
+  }
+  if (demog==1) {
+    g_diff<- g_diff+ labs(subtitle = "Only sites with demographic data (no temperature variation indicator)")
+  }
+  
+  return(g_diff)
+  
+}
+
+# p3 <- resilRankCompare(all_data_rescaled_attribs, 0)
+# p3
+
+p4 <- resilRankDiff(data_demog_sites_weighted, 1)
+p4
+
+```
+
+
+
+Matrix of how many sites change quartiles using different weighting systems. Only for quartiles assigned without the temperature variation indicator.
+```{r Table of how many sites change quartiles using different weighting systems}
+
+#Makes the quartile change field a factor
+data_demog_sites_weighted$quartile_change_no_temp_var <- as.factor(data_demog_sites_weighted$quartile_change_no_temp_var)
+
+#dataframe for quartile changes that is one column for each weighting scheme and one row for each quartile change found in the data
+quartile_change <- data.frame(matrix(0, nrow =  nlevels(data_demog_sites_weighted$quartile_change_no_temp_var), ncol = max(data_demog_sites_weighted$weighting_sys)))
+
+#Assigns row and column names
+row.names(quartile_change) <- c(levels(data_demog_sites_weighted$quartile_change_no_temp_var))
+colnames(quartile_change) <- paste("Weighting_", c(1:max(data_demog_sites_weighted$weighting_sys)), sep="")
+
+#Deletes the empty first row
+quartile_change <- quartile_change[-c(nrow(quartile_change)),]
+
+#Iteratres through all the weighting schemes (i.e. columns of the quartile_change dataframe)
+for (i in 1:max(data_demog_sites_weighted$weighting_sys)) {
+  
+  #Pulls out just the appropriate weighting
+  weighted <- data_demog_sites_weighted[which(data_demog_sites_weighted$weighting_sys == i),]
+
+  #Iterates through every row (i.e. station) of the weighting to pull out its quartile transition
+  for (j in 1:nrow(weighted)) {
+
+    #The actual transition for the row (station) of the weighting system that is being added to the transition matrix
+    change <- weighted$quartile_change_no_temp_var[j]
+
+    #Increments the value in the transition matrix by 1 for each transition found
+    value <- as.integer(subset(quartile_change, rownames(quartile_change) %in% change)[i]) + 1
+
+    quartile_change[which(rownames(quartile_change) %in% change),i] <- value
+
+  }
+}
+
+#Sums the number of transitions for each weighting system. It should be 230.
+quartile_change["Sum",] <- colSums(quartile_change)
+
+quartile_change <- quartile_change/nrow(data_demog_sites_unweighted)
+
+print(quartile_change)
+
+write.table(quartile_change, file = paste("sensit_analysis_quartile_change_", Sys.Date(), ".csv", sep=""), row.names = TRUE)
+
+```
+
+
+
+Merges LBSP and fishing stressor data with indicator data and makes boxplots of rescaled stressors and indicators
+```{r Merges LBSP and fishing stressor data with indicator data and makes boxplots}
+
+#Calculates the average of the rescaled nitrogen and sediment values for each site
+LBSP$StrdLBSP <- rowMeans(LBSP[,c("StrdNtrgen", "StrdSedmnt")])
+
+#Replaces the non-existent LBSP values with NAs
+LBSP[LBSP$StrdNtrgen == -99999, ]$StrdNtrgen <- NA
+LBSP[LBSP$StrdSedmnt == -99999, ]$StrdSedmnt <- NA
+LBSP[LBSP$StrdLBSP == -99999, ]$StrdLBSP <- NA
+
+#Only the necessary columns from the fishing data, and changes field names
+fishing_no_attribs <- fishing[,c(4, 32:36)]
+colnames(fishing_no_attribs)[c(2:6)] <- paste(colnames(fishing_no_attribs)[c(2:6)], "_fishing", sep="")
+
+#New dataset that will have indicators and stressors
+demog_sites_with_stressors <- data_demog_sites_weighted
+
+#Merges the fishing data to the indicator data
+demog_sites_with_stressors <- merge(x = demog_sites_with_stressors, y = fishing_no_attribs, by.x = "Station", by.y = "SurveyIndx")
+
+#Merges the LBSP data to the indicator data
+demog_sites_with_stressors <- merge(x = demog_sites_with_stressors, y = LBSP[,-c(1)], by.x = "Station", by.y = "StationID")
+
+#Rescales fishing values to a highest value of 1 for the sites in the assessment
+demog_sites_with_stressors$all_total_fishing_rescaled  <- demog_sites_with_stressors$all_total_fishing/max(demog_sites_with_stressors$all_total_fishing, na.rm=TRUE)
+
+#Rescales the LBSP values to a highest value of 1 for the sites in the assessment
+demog_sites_with_stressors$StrdNtrgen <- demog_sites_with_stressors$StrdNtrgen/max(demog_sites_with_stressors$StrdNtrgen, na.rm=TRUE)
+demog_sites_with_stressors$StrdSedmnt <- demog_sites_with_stressors$StrdSedmnt/max(demog_sites_with_stressors$StrdSedmnt, na.rm=TRUE)
+demog_sites_with_stressors$StrdLBSP <- demog_sites_with_stressors$StrdLBSP/max(demog_sites_with_stressors$StrdLBSP, na.rm=TRUE)
+
+#Since the above merges changed the order of the rows, reorders the indicator/stressor data by the weighting system, then by the station ID
+demog_sites_with_stressors <- demog_sites_with_stressors[order(demog_sites_with_stressors$weighting_sys, demog_sites_with_stressors$Station),]
+
+#Turns unweighted indicators and stressors into long form for box plot. Also reorders the variables for box plot.
+demog_sites_rescaled_long <- melt(demog_sites_with_stressors[which(demog_sites_with_stressors$weighting_sys == 0),c(10:17, 41,42, 64:67)])
+demog_sites_rescaled_long$variable <- factor(demog_sites_rescaled_long$variable, levels=c("SimpsonDiv_rescaled", "FractNotDiseased_rescaled","ThermalTol_rescaled", "HardCoralCover_rescaled", "AlgaeCover_rescaled", "Rugosity_rescaled", "HerbivoreBiomass_rescaled", "TempVar_rescaled", "resil_all_indic", "resil_no_temp_var", "StrdNtrgen", "StrdSedmnt", "StrdLBSP", "all_total_fishing_rescaled"))
+
+#creates boxplot of each rescaled indicator (1 is maximum value)
+p <- ggplot(data=demog_sites_rescaled_long, aes(x=variable, y=value)) + geom_boxplot(aes(fill=variable))
+p <- p + theme_bw()
+p <- p + theme(text = element_text(size=14), 
+               axis.text.x = element_text(angle = 0, vjust = 0.6))
+p <- p + labs(x = "Metric \n (indicator, stressor, or resilience score)", y = "Rescaled value")
+p <- p + scale_fill_manual(values=c("#999555", "#999555", "#999555", "#999555", "#999555", "#999555", "#999555", "#999555", "blue", "blue", "#999999", "#999999", "#999999", "#999999"))
+p <- p + scale_x_discrete(labels=c("Simpson \n diversity ", "Colonies \n not \n diseased","Coral \n thermal \n tolerance", "Hard \n coral \n cover", "Macroalgae \n cover", "Rugosity", "Herbivore \n biomass", "Temperature \n variation", "Resilience- \n all indicators", "Resilience- \n without \n temperature \n variation", "Nitrogen \n level", "Sediment \n level", "N + sed \n average", "Fishing \n pressure"))
+p <- p + scale_y_continuous(breaks=c(seq(0,1,0.2)))
+p <- p + theme(legend.position="none")
+
+#Minimum, mean, and maximum values of raw indicators, where appropriate
+simpson_min <- min(data_demog_sites_unweighted$SimpsonDiv_raw)
+simpson_mean <- mean(data_demog_sites_unweighted$SimpsonDiv_raw)
+simpson_max <- max(data_demog_sites_unweighted$SimpsonDiv_raw)
+disease_min <- min(data_demog_sites_unweighted$FractNotDiseased_raw)
+disease_mean <- mean(data_demog_sites_unweighted$FractNotDiseased_raw)
+disease_max <- max(data_demog_sites_unweighted$FractNotDiseased_raw)
+thermalTol_min <- min(data_demog_sites_unweighted$ThermalTol_raw)
+thermalTol_mean <- mean(data_demog_sites_unweighted$ThermalTol_raw)
+thermalTol_max <- max(data_demog_sites_unweighted$ThermalTol_raw)
+coralCover_min <- min(data_demog_sites_unweighted$HardCoralCover_raw)
+coralCover_mean <- mean(data_demog_sites_unweighted$HardCoralCover_raw)
+coralCover_max <- max(data_demog_sites_unweighted$HardCoralCover_raw)
+algaeCover_min <- min(data_demog_sites_unweighted$AlgaeCover_raw)
+algaeCover_mean <- mean(data_demog_sites_unweighted$AlgaeCover_raw)
+algaeCover_max <- max(data_demog_sites_unweighted$AlgaeCover_raw)
+rugosity_min <- min(data_demog_sites_unweighted$Rugosity_raw)
+rugosity_mean <- mean(data_demog_sites_unweighted$Rugosity_raw)
+rugosity_max <- max(data_demog_sites_unweighted$Rugosity_raw)
+herbiv_min <- min(data_demog_sites_unweighted$HerbivoreBiomass_raw)
+herbiv_mean <- mean(data_demog_sites_unweighted$HerbivoreBiomass_raw)
+herbiv_max <- max(data_demog_sites_unweighted$HerbivoreBiomass_raw)
+tempVar_min <- min(data_demog_sites_unweighted$TempVar_raw)
+tempVar_mean <- mean(data_demog_sites_unweighted$TempVar_raw)
+tempVar_max <- max(data_demog_sites_unweighted$TempVar_raw)
+
+#Adds minimum, mean and maximum values of raw indicators, where applicable
+p <- p + annotate("text", x=0.6, y=1.1, label="Min", size = 4)
+p <- p + annotate("text", x=0.6, y=1.15, label="Mean", size = 4)
+p <- p + annotate("text", x=0.6, y=1.2, label="Max", size = 4)
+p <- p + annotate("text", x=1, y=1.1, label=round(simpson_min, 2), size = 4)
+p <- p + annotate("text", x=1, y=1.15, label=round(simpson_mean, 2), size = 4)
+p <- p + annotate("text", x=1, y=1.2, label=round(simpson_max, 2), size = 4)
+p <- p + annotate("text", x=2, y=1.1, label=paste(round(disease_min*100, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=2, y=1.15, label=paste(round(disease_mean*100, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=2, y=1.2, label=paste(round(disease_max*100, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=3, y=1.1, label=round(thermalTol_min, 2), size = 4)
+p <- p + annotate("text", x=3, y=1.15, label=round(thermalTol_mean, 2), size = 4)
+p <- p + annotate("text", x=3, y=1.2, label=round(thermalTol_max, 2), size = 4)
+p <- p + annotate("text", x=4, y=1.1, label=paste(round(coralCover_min, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=4, y=1.15, label=paste(round(coralCover_mean, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=4, y=1.2, label=paste(round(coralCover_max, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=5, y=1.1, label=paste(round(algaeCover_min, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=5, y=1.15, label=paste(round(algaeCover_mean, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=5, y=1.2, label=paste(round(algaeCover_max, 0), "%", sep=""), size = 4)
+p <- p + annotate("text", x=6, y=1.1, label=round(rugosity_min, 2), size = 4)
+p <- p + annotate("text", x=6, y=1.15, label=round(rugosity_mean, 2), size = 4)
+p <- p + annotate("text", x=6, y=1.2, label=round(rugosity_max, 2), size = 4)
+p <- p + annotate("text", x=7, y=1.08, label=paste(round(herbiv_min, 2), "\n g/100 m^2"), size = 4)
+p <- p + annotate("text", x=7, y=1.15, label=round(herbiv_mean, 0), size = 4)
+p <- p + annotate("text", x=7, y=1.2, label=round(herbiv_max, 0), size = 4)
+p <- p + annotate("text", x=8, y=1.1, label=paste(round(tempVar_min, 2), "C"), size = 4)
+p <- p + annotate("text", x=8, y=1.15, label=paste(round(tempVar_mean, 2), "C"), size = 4)
+p <- p + annotate("text", x=8, y=1.2, label=paste(round(tempVar_max, 2), "C"), size = 4)
+
+#Adds annotation saying that summary stats for raw values aren't applicable
+for (i in 9:14) {
+  
+  p <- p + annotate("text", x=i, y=1.15, label="N/A", size=4)
+
+}
+
+p
+
+ggsave("indic_resil_stressor_box_plot.jpg", plot = p, device = "jpeg", width= 15, height=7, dpi=300)
+
+```
+
+
+
+Functions for management queries
+```{r Functions for management queries}
+
+#Identifies sites that are conducive to coral restoration
+#Criteria: 1) hard coral cover is lower than the average across all sites, and 2) site resilience is in the upper two quartiles (excluding the temperature variation indicator)
+restorn_axn <- function(indics_stressors, i, cutoff_quartile) {
+
+  #Average hard coral cover across all sites
+  coral_cov_avg <- mean(indics_stressors[,c("HardCoralCover_rescaled")], na.rm=TRUE)
+    
+  #Determines whether each site fits the restoration criteria
+  for (j in 1:nrow(indics_stressors)) {
+      
+    #Applies the two criteria to each site
+    if(indics_stressors[j,"HardCoralCover_rescaled"] < coral_cov_avg && indics_stressors[j,"resil_quart_no_temp_var"] <= cutoff_quartile){
+        
+      #If the site meets both critera, it is labeled "TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "restorn_axn"] <- "RESTORE"
+        
+    } else { 
+       
+      #If the site does not meet both criteria, it is labeled "NOT TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "restorn_axn"] <- "NOT TARGET"
+        
+    }
+  }
+    
+  return(demog_sites_with_queries)
+
+}
+
+
+#Identifies sites that are conducive to LBSP reduction
+#Criteria: 1) LBSP is higher than the average across all sites, and 2) site resilience is in the upper two quartiles (excluding the temperature variation indicator)
+LBSP_axn <- function(indics_stressors, i, cutoff_quartile) {
+  
+  #Average LBSP values (sediment and nitrogen combined) across all sites that had LBSP values
+  LBSP_avg <- mean(indics_stressors[,c("StrdLBSP")], na.rm=TRUE)
+  
+  #Determines whether each site fits the LBSP management criteria
+  for (j in 1:nrow(indics_stressors)) {
+
+    #Marks the site as not having LBSP data
+    if(is.na(indics_stressors[j, "StrdLBSP"])) {
+      
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "LBSP_axn"] <- "NO LBSP DATA"
+      
+    } 
+    
+    #Applies the management criteria to each site
+    else if(indics_stressors[j,"StrdLBSP"] > LBSP_avg && indics_stressors[j,"resil_quart_no_temp_var"] <= cutoff_quartile) {
+
+      #If the site meets both critera, it is labeled "TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "LBSP_axn"] <- "LBSP"
+        
+    } else { 
+       
+      #If the site does not meet both criteria, it is labeled "NOT TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "LBSP_axn"] <- "NOT TARGET"
+        
+    }
+  }
+    
+  return(demog_sites_with_queries)
+
+}
+
+
+#Identifies sites that are conducive to bleaching management
+#Criteria: 1) Bleaching resistance is lower than the average across all sites, and 2) herbivore biomass is lower than average across all sites
+bleaching_axn <- function(indics_stressors, i) {
+
+  #Average herbivore biomass across all sites
+  HerbivoreBiomass_avg <- mean(indics_stressors[,c("HerbivoreBiomass_rescaled")], na.rm=TRUE)
+
+  #Average coral thermal tolerance across all sites
+  ThermalTol_avg <- mean(indics_stressors[,c("ThermalTol_rescaled")], na.rm=TRUE)  
+  
+  #Determines whether each site fits the bleaching management criteria
+  for (j in 1:nrow(indics_stressors)) {
+
+    #Marks the site as not having coral demographic data
+    if(is.na(indics_stressors[j, "ThermalTol_rescaled"])) {
+      
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "bleaching_axn"] <- "NO DEMOG DATA/NO CORAL COLONIES"
+
+    } 
+    
+    #Applies the management criteria to each site
+    else if(indics_stressors[j,"HerbivoreBiomass_rescaled"] < HerbivoreBiomass_avg && indics_stressors[j,"ThermalTol_rescaled"] < ThermalTol_avg) {
+
+      #If the site meets both critera, it is labeled "TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "bleaching_axn"] <- "BLEACHING"
+        
+    } else { 
+       
+      #If the site does not meet both criteria, it is labeled "NOT TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "bleaching_axn"] <- "NOT TARGET"
+        
+    }
+  }
+    
+  return(demog_sites_with_queries)
+
+}
+
+
+#Identifies sites that are conducive to tourism outreach
+#Criteria: 1) Coral diversity is higher than average, 2) algae cover is lower than average, and 3) herbivore biomass is higher than average
+tourism_axn <- function(indics_stressors, i) {
+
+  #Average coral diversity across all sites
+  SimpsonDiv_avg <- mean(indics_stressors[,c("SimpsonDiv_rescaled")], na.rm=TRUE)  
+  
+  #Average algae cover across all sites
+  AlgaeCover_avg <- mean(indics_stressors[,c("AlgaeCover_rescaled")], na.rm=TRUE)  
+  
+  #Average herbivore biomass across all sites
+  HerbivoreBiomass_avg <- mean(indics_stressors[,c("HerbivoreBiomass_rescaled")], na.rm=TRUE)
+  
+  #Determines whether each site fits the tourism outreach criteria
+  for (j in 1:nrow(indics_stressors)) {
+
+    #Marks the site as not having the necessary data
+    if(is.na(indics_stressors[j, "SimpsonDiv_rescaled"])) {
+      
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "tourism_axn"] <- "NO DEMOG DATA/NO CORAL COLONIES"
+
+    } 
+    
+    #Applies the management criteria to each site
+    else if(indics_stressors[j,"SimpsonDiv_rescaled"] > SimpsonDiv_avg && indics_stressors[j,"AlgaeCover_rescaled"] < AlgaeCover_avg & indics_stressors[j,"HerbivoreBiomass_rescaled"] >  HerbivoreBiomass_avg) {
+
+      #If the site meets all critera, it is labeled "TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "tourism_axn"] <- "TOURISM"
+        
+    } else { 
+       
+      #If the site does not meet both criteria, it is labeled "NOT TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "tourism_axn"] <- "NOT TARGET"
+        
+    }
+  }
+    
+  return(demog_sites_with_queries)
+
+}
+
+
+#Identifies sites that are conducive to fishery management and enforcement
+#Criteria: 1) Herbivore biomass is lower than the average across all sites, and 2) fishing pressure is higher than average across all sites
+fishing_axn <- function(indics_stressors, i) {
+
+  #Average herbivore biomass across all sites
+  HerbivoreBiomass_avg <- mean(indics_stressors[,c("HerbivoreBiomass_rescaled")], na.rm=TRUE)
+
+  #Average fishing pressure across all sites
+  fishing_avg <- mean(indics_stressors[,c("all_total_fishing_rescaled")], na.rm=TRUE)  
+  
+  #Determines whether each site fits the fishing management criteria
+  for (j in 1:nrow(indics_stressors)) {
+      
+    #Applies the two criteria to each site
+    if(indics_stressors[j,"HerbivoreBiomass_rescaled"] < HerbivoreBiomass_avg && indics_stressors[j,"all_total_fishing_rescaled"] > fishing_avg){
+        
+      #If the site meets both critera, it is labeled "TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "fishing_axn"] <- "FISHING"
+        
+    } else { 
+       
+      #If the site does not meet both criteria, it is labeled "NOT TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "fishing_axn"] <- "NOT TARGET"
+        
+    }
+  }
+    
+  return(demog_sites_with_queries)
+
+}
+
+
+#Identifies sites that are conducive to disease monitoring
+#Criteria: 1) Coral cover is higher than average across all sites, and 2) disease prevalence is higher than the average across all sites
+disease_axn <- function(indics_stressors, i) {
+
+  #Average coral cover across all sites
+  CoralCover_avg <- mean(indics_stressors[,c("HardCoralCover_rescaled")], na.rm=TRUE)
+
+  #Average fraction of colonies without disease across all sites
+  NotDiseased_avg <- mean(indics_stressors[,c("FractNotDiseased_rescaled")], na.rm=TRUE)  
+  
+  #Determines whether each site fits the disease management criteria
+  for (j in 1:nrow(indics_stressors)) {
+
+        #Marks the site as not having the necessary data
+    if(is.na(indics_stressors[j, "FractNotDiseased_rescaled"])) {
+      
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "disease_axn"] <- "NO DEMOG DATA/NO CORAL COLONIES"
+
+    } 
+     
+    #Applies the two criteria to each site
+    else if(indics_stressors[j,"HardCoralCover_rescaled"] > CoralCover_avg && indics_stressors[j,"FractNotDiseased_rescaled"] < NotDiseased_avg){
+
+      #If the site meets both critera, it is labeled "TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "disease_axn"] <- "DISEASE"
+        
+    } else { 
+       
+      #If the site does not meet both criteria, it is labeled "NOT TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "disease_axn"] <- "NOT TARGET"
+        
+    }
+  }
+    
+  return(demog_sites_with_queries)
+
+}
+ 
+
+#Identifies sites that are conducive to coral protection
+#Criteria: 1) LBSP is moderate, 2) fishing is moderate, and 3) resilience is in the upper two quartiles (excluding the temperature variation indicator)
+protexn_axn <- function(indics_stressors, i, cutoff_quartile) {
+
+  #Average and standard deviation of LBSP values (sediment and nitrogen combined) across all sites that had LBSP values
+  LBSP_avg <- mean(indics_stressors[,c("StrdLBSP")], na.rm=TRUE)
+  LBSP_stdev <- sd(indics_stressors[,c("StrdLBSP")], na.rm=TRUE)
+
+  #Average and standard deviation of fishing pressure across all sites
+  fishing_avg <- mean(indics_stressors[,c("all_total_fishing_rescaled")], na.rm=TRUE) 
+  fishing_stdev <- sd(indics_stressors[,c("all_total_fishing_rescaled")], na.rm=TRUE)
+
+  #Determines whether each site fits the protection criteria
+  for (j in 1:nrow(indics_stressors)) {
+
+    #Marks the site as not having LBSP data
+    if(is.na(indics_stressors[j, "StrdLBSP"])) {
+      
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "protexn_axn"] <- "NO LBSP DATA"
+      
+    } 
+    
+    #Applies the management criteria to each site
+    else if(indics_stressors[j,"StrdLBSP"] <= LBSP_avg + LBSP_stdev && indics_stressors[j,"StrdLBSP"] >= LBSP_avg - LBSP_stdev && indics_stressors[j,"all_total_fishing_rescaled"] <= fishing_avg + fishing_stdev && indics_stressors[j,"all_total_fishing_rescaled"] >= fishing_avg - fishing_stdev && indics_stressors[j,"resil_quart_no_temp_var"] <= cutoff_quartile) {
+
+      #If the site meets both critera, it is labeled "TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "protexn_axn"] <- "PROTECT"
+        
+    } else { 
+       
+      #If the site does not meet both criteria, it is labeled "NOT TARGET"
+      demog_sites_with_queries[i*nrow(indics_stressors) + j, "protexn_axn"] <- "NOT TARGET"
+        
+    }
+  }
+    
+  return(demog_sites_with_queries)
+
+}
+
+
+```
+
+
+
+Runs management queries using indicators, resilience scores, and fishing/LBSP stressor values
+```{r Runs management queries using indicators, resilience scores, and fish/LBSP stressor values}
+
+#Dataframe that stores the management query results
+demog_sites_with_queries <- demog_sites_with_stressors
+
+#The number of higher resilience quartiles which are being used for querying management
+#e.g., "2" means that sites in the two highest quartiles will be considered for the management actions
+cutoff_quartile <- 2
+
+#Column that stores whether each site is a restoration target
+demog_sites_with_queries$restorn_axn <- NA
+
+#Column that stores whether each site is a LBSP reduction target
+demog_sites_with_queries$LBSP_axn <- NA
+
+#Column that stores whether each site is a bleaching management target
+demog_sites_with_queries$bleaching_axn <- NA
+
+#Column that stores whether each site is a tourism outreach target
+demog_sites_with_queries$tourism_axn <- NA
+
+#Column that stores whether each site is a fishing management target
+demog_sites_with_queries$fishing_axn <- NA
+
+#Column that stores whether each site is a coral disease monitoring and management target
+demog_sites_with_queries$disease_axn <- NA
+
+#Column that stores whether each site is a protection target
+demog_sites_with_queries$protexn_axn <- NA
+
+#Identifies sites that meet the management action query criteria. Uses resilience scores without temperature variation indicator, wherever applicable.
+#Iterates through each weighting system.
+for (i in 0:max(demog_sites_with_queries$weighting_sys)) {
+   
+  #Determines whether each site is a restoration target under each weighting system 
+  demog_sites_with_queries <- restorn_axn(demog_sites_with_queries[which(demog_sites_with_queries$weighting_sys == i),], i, cutoff_quartile)
+  
+  #Determines whether each site is an LBSP management target under each weighting system
+  demog_sites_with_queries <- LBSP_axn(demog_sites_with_queries[which(demog_sites_with_queries$weighting_sys == i),], i, cutoff_quartile)
+  
+  #Determines whether each site is a bleaching monitoring and management target under each weighting system
+  demog_sites_with_queries <- bleaching_axn(demog_sites_with_queries[which(demog_sites_with_queries$weighting_sys == i),], i)
+  
+  #Determines whether each site would be a good target for tourism outreach
+  demog_sites_with_queries <- tourism_axn(demog_sites_with_queries[which(demog_sites_with_queries$weighting_sys == i),], i)
+  
+  #Determines whether each site would be a good target for fishing management
+  demog_sites_with_queries <- fishing_axn(demog_sites_with_queries[which(demog_sites_with_queries$weighting_sys == i),], i)
+  
+  #Determines whether each site would be a good target for disease management
+  demog_sites_with_queries <- disease_axn(demog_sites_with_queries[which(demog_sites_with_queries$weighting_sys == i),], i)
+  
+  #Determines whether each site is a protection target under each weighting system
+  demog_sites_with_queries <- protexn_axn(demog_sites_with_queries[which(demog_sites_with_queries$weighting_sys == i),], i, cutoff_quartile)
+  
+}
+
+#Column that stores all of the actions that can be used at that site
+demog_sites_with_queries$all_axns <- apply(demog_sites_with_queries[,c(68:74)], 1, paste, collapse= " ")
+
+#Removes the text saying which actions don't apply; leaves only which actions do apply at that site
+demog_sites_with_queries$all_axns <- gsub("NOT TARGET ", "", demog_sites_with_queries$all_axns)
+demog_sites_with_queries$all_axns <- gsub("NO DEMOG DATA/NO CORAL COLONIES ", "", demog_sites_with_queries$all_axns)
+demog_sites_with_queries$all_axns <- gsub("NOT TARGET", "", demog_sites_with_queries$all_axns)
+demog_sites_with_queries$all_axns <- gsub("NO LBSP DATA ", "", demog_sites_with_queries$all_axns)
+demog_sites_with_queries$all_axns <- gsub("NO LBSP DATA", "", demog_sites_with_queries$all_axns)
+demog_sites_with_queries$all_axns <- gsub(" $", "", demog_sites_with_queries$all_axns)
+demog_sites_with_queries$all_axns <- gsub("^$", "NO_ACTION", demog_sites_with_queries$all_axns)
+
+#Column that stores just the first letter or each action
+demog_sites_with_queries$all_axns_brief <- demog_sites_with_queries$all_axns
+
+#Supplies the first letter of each action
+demog_sites_with_queries$all_axns_brief <- gsub("RESTORE", "R", demog_sites_with_queries$all_axns_brief)
+demog_sites_with_queries$all_axns_brief <- gsub("LBSP", "L", demog_sites_with_queries$all_axns_brief)
+demog_sites_with_queries$all_axns_brief <- gsub("BLEACHING", "B", demog_sites_with_queries$all_axns_brief)
+demog_sites_with_queries$all_axns_brief <- gsub("TOURISM", "T", demog_sites_with_queries$all_axns_brief)
+demog_sites_with_queries$all_axns_brief <- gsub("FISHING", "F", demog_sites_with_queries$all_axns_brief)
+demog_sites_with_queries$all_axns_brief <- gsub("DISEASE", "D", demog_sites_with_queries$all_axns_brief)
+demog_sites_with_queries$all_axns_brief <- gsub("PROTECT", "P", demog_sites_with_queries$all_axns_brief)
+demog_sites_with_queries$all_axns_brief <- gsub(" ", "", demog_sites_with_queries$all_axns_brief)
+
+
+write.table(demog_sites_with_queries, file = paste("resil_with_queries_", Sys.Date(), ".csv", sep=""), row.names = FALSE)
+
+```
+
+
+
+```{r Adds the year of onset of annual bleaching under RCP8.5}
+
+demog_sites_with_bleaching <- merge(demog_sites_with_queries, annual_bleaching_rcp85[,c("Station", "onset_yr_annual_bleaching_rcp85", "outside_annual_bleaching_proj_raster")], by.x = "Station", by.y = "Station")
+
+#Since the above merges changed the order of the rows, reorders the indicator/stressor data by the weighting system, then by the station ID
+demog_sites_with_bleaching <- demog_sites_with_bleaching[order(demog_sites_with_bleaching$weighting_sys, demog_sites_with_bleaching$Station),]
+
+#Field to categorize sites by their temperature exposure (annual significant bleaching onset year)
+demog_sites_with_bleaching$exposure <- NA
+
+#Field to store vulnerablity of sites (combination of exposure and resilience)
+demog_sites_with_bleaching$vulnerability <- NA
+
+#Iterates through every row
+for(i in 1:nrow(demog_sites_with_bleaching)) {
+  
+  #Categorizes sites by their temperature exposure
+  if(demog_sites_with_bleaching[i,"onset_yr_annual_bleaching_rcp85"] < 2042) {
+    demog_sites_with_bleaching[i,"exposure"] <- "HIGH"
+  }
+  else {
+    demog_sites_with_bleaching[i,"exposure"] <- "LOW"
+  }
+  
+  #Categorizes each row into vulnerability levels (low, moderate, high) based on temperature projection exposure and resilience quartile (without temperature variation indicator)
+  if(demog_sites_with_bleaching[i,"exposure"] == "LOW" & demog_sites_with_bleaching[i,"resil_quart_no_temp_var"] < 3) {
+    demog_sites_with_bleaching[i,"vulnerability"] <- "LOW"
+  }
+  else if(demog_sites_with_bleaching[i,"exposure"] == "LOW" && demog_sites_with_bleaching[i,"resil_quart_no_temp_var"] > 2) {
+    demog_sites_with_bleaching[i,"vulnerability"] <- "MODERATE"
+  }
+  else if(demog_sites_with_bleaching[i,"exposure"] == "HIGH" && demog_sites_with_bleaching[i,"resil_quart_no_temp_var"] < 3) {
+    demog_sites_with_bleaching[i,"vulnerability"] <- "MODERATE"
+  }
+  else {
+    demog_sites_with_bleaching[i,"vulnerability"] <- "HIGH"
+  }
+  
+}
+
+
+write.table(demog_sites_with_bleaching, file = paste("resil_with_bleaching_onset_", Sys.Date(), ".csv", sep=""), row.names = FALSE)
+
+```
+
+
+
+
+Miscellaneous calculations
+```{r Miscellaneous calculations}
+
+#Standard deviations of resilience scores with and without temperature variation indicator
+sd(data_demog_sites_unweighted$resil_all_indic)
+sd(data_demog_sites_unweighted$resil_no_temp_var)
+
+#Correlation between resilience scores with and without temperature variation indicator
+cor(data_demog_sites_unweighted$resil_all_indic, data_demog_sites_unweighted$resil_no_temp_var, method="pearson")
+
+```
+
+
+
+Canonical analysis of principal coordinates
+From BiodiverstiyR package. Used by Maynard et al. 2015 for CNMI report and described in Maynard et al. 2017 UN report
+```{r Canonical analysis of principal coordinates (CAP)}
+
+#Data.frame of rescaled indicators
+indics <- data_demog_sites_unweighted[,c(10:17)]
+indics_df <- as.data.frame(indics)
+
+#the variable being classified by is resilience quartile without temperature variation
+indics.env <- data_demog_sites_unweighted[,c(43:46)]
+indics.env[,4] <- as.factor(indics.env[,4])
+
+#Runs the model
+indic_model <- CAPdiscrim(indics_df~resil_quart_no_temp_var, data=indics.env, dist="bray", axes=2, m=0, add=FALSE)
+indic_model
+
+colvec <- c("green4", "orange", "yellow", "red")
+
+#Plots the CAP groupings
+indic_plot <- ordiplot(indic_model, type="none", xlab="CAP1", ylab="CAP2", col=colvec)
+ordisymbol(indic_plot, indics.env, "resil_quart_no_temp_var", legend=TRUE)
+
+ordiellipse(indic_model, indics.env$resil_quart_no_temp_var, scaling="symmetric", col=1:4, draw="polygon", label=TRUE)
+
+
+
+```
+
